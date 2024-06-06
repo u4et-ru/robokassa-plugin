@@ -6,7 +6,7 @@ _(Plugin)_
 Put in `plugin` folder and setup in `index.php` file:
 ```php
 // robokassa plugin
-$plugins->register(\Plugin\Robokassa\RobokassaPlugin::class);
+$plugins->register(\Plugin\RobokassaPayment\RobokassaPlugin::class);
 ```
 
 #### License

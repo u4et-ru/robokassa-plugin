@@ -1,27 +1,24 @@
 <?php declare(strict_types=1);
 
-namespace Plugin\Robokassa;
+namespace Plugin\RobokassaPayment;
 
-use App\Domain\AbstractPlugin;
+use App\Domain\Models\CatalogOrder;
+use App\Domain\Models\CatalogProduct;
+use App\Domain\Plugin\AbstractPaymentPlugin;
 use Psr\Container\ContainerInterface;
-use Slim\Psr7\Request;
-use Slim\Psr7\Response;
 
-class RobokassaPlugin extends AbstractPlugin
+class RobokassaPaymentPlugin extends AbstractPaymentPlugin
 {
-    const AUTHOR = 'ilshatkin';
-    const NAME = 'RobokassaPlugin';
-    const TITLE = 'Robokassa';
-    const AUTHOR_SITE = 'https://u4et.ru';
-    const VERSION = '1.0';
+    const AUTHOR = 'Aleksey Ilyin';
+    const AUTHOR_SITE = 'https://getwebspace.org';
+    const NAME = 'RobokassaPaymentPlugin';
+    const TITLE = 'RobokassaPayment';
+    const DESCRIPTION = 'Возможность принимать безналичную оплату товаров и услуг';
+    const VERSION = '2.0.0';
 
     public function __construct(ContainerInterface $container)
     {
         parent::__construct($container);
-
-        $self = $this;
-
-        $this->addTwigExtension(\Plugin\Robokassa\RobokassaPluginTwigExt::class);
 
         $this->addSettingsField([
             'label' => 'Логин',
@@ -83,26 +80,60 @@ class RobokassaPlugin extends AbstractPlugin
             ->map([
                 'methods' => ['get', 'post'],
                 'pattern' => '/cart/done/rb/success',
-                'handler' => \Plugin\Robokassa\Actions\SuccessAction::class,
+                'handler' => \Plugin\RobokassaPayment\Actions\SuccessAction::class,
             ])
             ->setName('common:rb:success');
 
-        // успешная оплата
+        // не успешная оплата
         $this
             ->map([
                 'methods' => ['get', 'post'],
                 'pattern' => '/cart/done/rb/error',
-                'handler' => \Plugin\Robokassa\Actions\ErrorAction::class,
+                'handler' => \Plugin\RobokassaPayment\Actions\ErrorAction::class,
             ])
             ->setName('common:rb:error');
 
-        // успешная оплата
+        // результат
         $this
             ->map([
                 'methods' => ['get', 'post'],
                 'pattern' => '/cart/done/rb/result',
-                'handler' => \Plugin\Robokassa\Actions\ResultAction::class,
+                'handler' => \Plugin\RobokassaPayment\Actions\ResultAction::class,
             ])
             ->setName('common:rb:result');
+    }
+
+    public function getRedirectURL(CatalogOrder $order): string
+    {
+        $login = $this->parameter('RobokassaPlugin_login', '');
+        $password = $this->parameter('RobokassaPlugin_password_1', '');
+
+        $receipt = [
+            'sno' => $this->parameter('RobokassaPlugin_sno', 'osn'),
+            'items' => [],
+        ];
+
+        foreach ($order->products as $product) {
+            if ($product->price() > 0) {
+                $receipt['items'][] = [
+                    'name' => $product->title,
+                    'quantity' => $product->totalCount(),
+                    'cost' => $product->totalPrice(),
+                    'sum' => $product->totalSum(),
+                    'tax' => $this->parameter('RobokassaPlugin_tax', 'none'),
+                ];
+            }
+        }
+
+        $receipt = json_encode($receipt, JSON_UNESCAPED_UNICODE);
+
+        return 'https://auth.robokassa.ru/Merchant/Index.aspx?' . implode('&', [
+                'MerchantLogin=' . $login,
+                'OutSum=' . $order->totalSum(),
+                'InvoiceID=' . $order->serial,
+                'Description=' . $this->parameter('RobokassaPlugin_description', ''),
+                'Receipt=' . $receipt,
+                'SignatureValue=' . md5(implode(':', [$login, $order->totalSum(), $order->serial, $receipt, $password])),
+            ]);
     }
 }
